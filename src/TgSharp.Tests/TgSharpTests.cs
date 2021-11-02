@@ -226,6 +226,7 @@ namespace TgSharp.Tests
             await client.SendUploadedDocument(
                 new TLInputPeerUser() { UserId = user.Id },
                 fileResult,
+                "some file",
                 "application/zip",
                 new TLVector<TLAbsDocumentAttribute>());
         }
