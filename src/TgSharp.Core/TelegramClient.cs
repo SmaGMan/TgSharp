@@ -37,6 +37,8 @@ namespace TgSharp.Core
 
         public Session Session { get; private set; }
 
+        private Dictionary<int, Tuple<TLUser, AuthKey, int>> authCache;
+
         /// <summary>
         /// Creates a new TelegramClient
         /// </summary>
@@ -68,6 +70,8 @@ namespace TgSharp.Core
             this.dcIpVersion = dcIpVersion;
 
             this.sessionUserId = sessionUserId;
+
+            this.authCache = new Dictionary<int, Tuple<TLUser, AuthKey, int>>();
         }
 
         public async Task ConnectAsync (CancellationToken token = default (CancellationToken))
@@ -79,7 +83,9 @@ namespace TgSharp.Core
         {
             token.ThrowIfCancellationRequested();
 
-            Session = SessionFactory.TryLoadOrCreateNew (store, sessionUserId);
+            if (Session == null) {
+                Session = SessionFactory.TryLoadOrCreateNew (store, sessionUserId);
+            }
             transport = new TcpTransport (Session.DataCenter.Address, Session.DataCenter.Port, this.handler);
 
             if (Session.AuthKey == null || reconnect)
@@ -109,6 +115,15 @@ namespace TgSharp.Core
             await sender.Receive(invokewithLayer, token).ConfigureAwait(false);
 
             dcOptions = ((TLConfig)invokewithLayer.Response).DcOptions.ToList();
+
+            // determine the current dc id
+            if (Session.DataCenter.DataCenterId == null) {
+                var currDc = dcOptions.FirstOrDefault(d => d.IpAddress == Session.DataCenter.Address && d.Port == Session.DataCenter.Port);
+                if (currDc != null) {
+                    Session.DataCenter = new DataCenter(currDc.Id, Session.DataCenter.Address, Session.DataCenter.Port);
+                    this.store.Save(Session);
+                }
+            }
         }
 
         private async Task ReconnectToDcAsync(int dcId, CancellationToken token = default(CancellationToken))
@@ -118,8 +133,15 @@ namespace TgSharp.Core
             if (dcOptions == null || !dcOptions.Any())
                 throw new InvalidOperationException($"Can't reconnect. Establish initial connection first.");
 
+            // cache the current auth
+            if (Session.DataCenter.DataCenterId.HasValue) {
+                authCache[Session.DataCenter.DataCenterId.Value] = 
+                    new Tuple<TLUser, AuthKey, int>(Session.TLUser, Session.AuthKey, Session.TimeOffset);
+            }
+
+            // export auth only if there is no cached one
             TLExportedAuthorization exported = null;
-            if (Session.TLUser != null)
+            if (Session.TLUser != null && !authCache.ContainsKey(dcId))
             {
                 TLRequestExportAuthorization exportAuthorization = new TLRequestExportAuthorization() { DcId = dcId };
                 exported = await SendRequestAsync<TLExportedAuthorization>(exportAuthorization, token).ConfigureAwait(false);
@@ -148,15 +170,24 @@ namespace TgSharp.Core
             
             var dataCenter = new DataCenter (dcId, dc.IpAddress, dc.Port);
             Session.DataCenter = dataCenter;
-            this.store.Save (Session);
 
-            await ConnectInternalAsync(true, token).ConfigureAwait(false);
+            Tuple<TLUser, AuthKey, int> cachedAuth;
+            if (authCache.TryGetValue(dcId, out cachedAuth)) {
+                // use cached auth if exists
+                Session.AuthKey = cachedAuth.Item2;
+                Session.TimeOffset = cachedAuth.Item3;
+                await ConnectInternalAsync(false, token).ConfigureAwait(false);
+                OnUserAuthenticated(cachedAuth.Item1);
 
-            if (Session.TLUser != null)
-            {
-                TLRequestImportAuthorization importAuthorization = new TLRequestImportAuthorization() { Id = exported.Id, Bytes = exported.Bytes };
-                var imported = await SendRequestAsync<TLAuthorization>(importAuthorization, token).ConfigureAwait(false);
-                OnUserAuthenticated((TLUser)imported.User);
+            } else {
+                await ConnectInternalAsync(true, token).ConfigureAwait(false);
+
+                // otherwise import the previously exported auth
+                if (Session.TLUser != null) {
+                    TLRequestImportAuthorization importAuthorization = new TLRequestImportAuthorization() { Id = exported.Id, Bytes = exported.Bytes };
+                    var imported = await SendRequestAsync<TLAuthorization>(importAuthorization, token).ConfigureAwait(false);
+                    OnUserAuthenticated((TLUser)imported.User);
+                }
             }
         }
 
