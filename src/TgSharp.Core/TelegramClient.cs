@@ -382,7 +382,7 @@ namespace TgSharp.Core
         }
 
         public async Task<TLAbsUpdates> SendUploadedDocument(
-            TLAbsInputPeer peer, TLAbsInputFile file, string mimeType, TLVector<TLAbsDocumentAttribute> attributes, CancellationToken token = default(CancellationToken))
+            TLAbsInputPeer peer, TLAbsInputFile file, string message, string mimeType, TLVector<TLAbsDocumentAttribute> attributes, CancellationToken token = default(CancellationToken))
         {
             return await SendAuthenticatedRequestAsync<TLAbsUpdates>(new TLRequestSendMedia()
             {
@@ -395,6 +395,7 @@ namespace TgSharp.Core
                     MimeType = mimeType,
                     Attributes = attributes
                 },
+                Message = message,
                 Peer = peer
             }, token)
                 .ConfigureAwait(false);

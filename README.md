@@ -124,6 +124,7 @@ TgSharp provides two wrappers for sending photo and document:
     await client.SendUploadedDocument(new TLInputPeerUser() { UserId = user.Id },
                                       fileResult,
                                       "application/zip", //mime-type
+                                      "kitty", // message text
 
                                       //document attributes, such as file name
                                       new TLVector<TLAbsDocumentAttribute>());
@@ -134,6 +135,7 @@ You can see the Full code at [SendPhotoToContactTest](https://github.com/nblockc
 To download a file you should call the **GetFile** method:
 
 ```csharp
+    // get documnet
     await client.GetFile(new TLInputDocumentFileLocation()
                          {
                              AccessHash = document.AccessHash,
@@ -144,6 +146,18 @@ To download a file you should call the **GetFile** method:
 
                          //size of fileChunk you want to retrieve
                          document.Size);
+    // get photo
+    TLPhotoSize photoSize = photo.Sizes.ToList().OfType<TLPhotoSize>().Last();
+    await client.GetFile(new TLInputPhotoFileLocation()
+                         {
+                             AccessHash = photo.AccessHash,
+                             Id = photo.Id,
+                             FileReference = photo.FileReference,
+                             ThumbSize = photoSize.Type,
+                         },
+
+                         //size of fileChunk you want to retrieve
+                         photoSize.Size);
 ```
 
 You can see the Full code at [DownloadFileFromContactTest](https://github.com/nblockchain/TgSharp/blob/master/src/TgSharp.Tests/TgSharpTests.cs#L167)
